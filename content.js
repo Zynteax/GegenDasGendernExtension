@@ -1,156 +1,131 @@
-let filter = {};
-let compiledFilter = [];
 const devMode = true;
-const GENDER_SYMBOLS = [":", "*", "_", "·", "/"];
 const FILTER_URL = "https://raw.githubusercontent.com/Zynteax/GegenDasGendernExtension/master/filter.json";
+const CACHE_DURATION = 15 * 60 * 1000; // 15 Minuten
+const GENDER_SYMBOLS = [":", "*", "_", "·", "/", "-"];
 
-function generateFilterVariants(base) {
-    const result = { ...base };
-    const seen = new Set(Object.keys(base));
+// Globale Zustände für den kompilierten Filter
+let compiledRegex = null;
+let filterMap = new Map();
 
-    for (const [key, value] of Object.entries(base)) {
-        if (key.includes(":innen")) {
-            const variant = key.replace(":innen", ":in");
-            if (!seen.has(variant)) {
-                result[variant] = value;
-                seen.add(variant);
-            }
+/**
+ * Erzeugt aus einer Basis-Filterliste automatisch alle Varianten.
+ * @param {object} baseFilter - Das ursprüngliche Filterobjekt aus der JSON-Datei.
+ * @returns {Map<string, string>} Eine Map mit allen originalen und generierten Filterregeln.
+ */
+function generateFilterVariants(baseFilter) {
+    const variants = new Map();
+
+    for (const [key, value] of Object.entries(baseFilter)) {
+        variants.set(key, value);
+
+        // Behandelt Präpositionen wie "zum:zur" -> "zum".
+        // Diese Logik wurde präzisiert, um Fehler wie "in" -> "Trainer" zu vermeiden.
+        const prepParts = key.split(':');
+        if (prepParts.length === 2 && prepParts[0] === value && prepParts[1].length > 0 && prepParts[0].length <= 4) {
+            variants.set(prepParts[1], value);
         }
 
-        if (key.includes(":")) {
-            for (const symbol of GENDER_SYMBOLS) {
-                const variant = key.replace(":", symbol);
-                if (!seen.has(variant)) {
-                    result[variant] = value;
-                    seen.add(variant);
+        // Findet das verwendete Gender-Symbol im Schlüssel (z.B. ":")
+        const originalSymbol = GENDER_SYMBOLS.find(sym => key.includes(sym));
+
+        if (originalSymbol) {
+            // Erzeugt Varianten mit anderen Symbolen (z.B. "*" und "_")
+            GENDER_SYMBOLS.forEach(targetSymbol => {
+                if (originalSymbol !== targetSymbol) {
+                    const newKey = key.replace(new RegExp(escapeRegex(originalSymbol), 'g'), targetSymbol);
+                    variants.set(newKey, value);
                 }
-                if (key.includes(":innen")) {
-                    const innerVariant = key.replace(":innen", symbol + "in");
-                    if (!seen.has(innerVariant)) {
-                        result[innerVariant] = value;
-                        seen.add(innerVariant);
-                    }
-                }
+            });
+
+            // Erzeugt Binnen-I-Varianten (z.B. "ÄrztInnen" aus "Ärzt:innen")
+            if (key.endsWith(`${originalSymbol}innen`)) {
+                variants.set(key.replace(`${originalSymbol}innen`, 'Innen'), value);
+            }
+            if (key.endsWith(`${originalSymbol}in`)) {
+                variants.set(key.replace(`${originalSymbol}in`, 'In'), value);
             }
         }
     }
-
-    return result;
+    return variants;
 }
 
+/**
+ * Maskiert Sonderzeichen in einem String für die Verwendung in einem regulären Ausdruck.
+ * @param {string} str - Der zu maskierende String.
+ * @returns {string} Der maskierte String.
+ */
 function escapeRegex(str) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function compileFilter(filterObj) {
-    compiledFilter = [];
-    for (const [pattern, replacement] of Object.entries(filterObj)) {
-        let regexPattern = escapeRegex(pattern).replace(/[:*_·/]/g, '[:*_·/]');
-        if (!/^\w+ /.test(pattern)) {
-            regexPattern = '\\b' + regexPattern;
-        }
-        regexPattern += '\\b';
-        try {
-            const regex = new RegExp(regexPattern, 'gi');
-            compiledFilter.push({ regex, replacement });
-        } catch {}
-    }
-}
-
-async function fetchAndCacheFilter(url) {
-    const cachedFilter = localStorage.getItem('cachedFilter');
-    const cacheTimestamp = localStorage.getItem('cacheTimestamp');
-    const cacheDuration = 30 * 60 * 1000;
-
-    if (!devMode && cachedFilter && cacheTimestamp && (Date.now() - cacheTimestamp < cacheDuration)) {
-        return JSON.parse(cachedFilter);
+/**
+ * Kompiliert die Filter-Map in einen einzigen, effizienten regulären Ausdruck.
+ * @param {Map<string, string>} variants - Die Map aller Filterregeln.
+ */
+function compileFilter(variants) {
+    filterMap = variants;
+    if (filterMap.size === 0) {
+        compiledRegex = null;
+        return;
     }
 
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("Filter konnte nicht geladen werden");
-    const filterData = await response.json();
+    // Sortiert die Schlüssel nach Länge (absteigend), um längere Muster zuerst zu finden.
+    const sortedPatterns = Array.from(filterMap.keys()).sort((a, b) => b.length - a.length);
+    const regexString = sortedPatterns.map(escapeRegex).join('|');
 
-    localStorage.setItem('cachedFilter', JSON.stringify(filterData));
-    localStorage.setItem('cacheTimestamp', Date.now().toString());
-
-    return filterData;
+    // Verwendet negative Lookarounds, um ganze Wörter zu erkennen, auch wenn sie Symbole enthalten.
+    compiledRegex = new RegExp(`(?<!\\w)(${regexString})(?!\\w)`, 'g');
 }
 
-async function initFilter() {
-    const base = await fetchAndCacheFilter(FILTER_URL);
-    const variants = generateFilterVariants(base);
-    compileFilter(variants);
-    return variants;
+/**
+ * Ersetzt alle Gender-Begriffe in einem gegebenen Text.
+ * @param {string} text - Der zu verarbeitende Text.
+ * @returns {string} Der verarbeitete Text.
+ */
+function replaceGendersInText(text) {
+    if (!compiledRegex || !text) return text;
+
+    return text.replace(compiledRegex, (match) => {
+        const replacement = filterMap.get(match);
+        return replacement !== undefined ? replacement : match;
+    });
 }
 
-function ersetzeGendern(text) {
-    if (!compiledFilter.length) return text;
-
-    for (const { regex, replacement } of compiledFilter) {
-        text = text.replace(regex, match => {
-            if (match === match.toUpperCase()) {
-                return replacement.toUpperCase();
+/**
+ * Durchläuft den DOM ab einem Startknoten und wendet die Ersetzungen auf alle Textknoten an.
+ * @param {Node} rootNode - Der Startknoten für die Verarbeitung.
+ */
+function processNode(rootNode) {
+    const walker = document.createTreeWalker(rootNode, NodeFilter.SHOW_TEXT, {
+        acceptNode(node) {
+            const parent = node.parentElement;
+            // Überspringt leere, bearbeitbare oder unsichtbare Knoten
+            if (!parent || node.nodeValue.trim() === '' || parent.isContentEditable ||
+                ['SCRIPT', 'STYLE', 'TEXTAREA'].includes(parent.tagName)) {
+                return NodeFilter.FILTER_REJECT;
             }
-
-            const firstChar = match.trim()[0];
-            if (firstChar === firstChar.toUpperCase()) {
-                return replacement[0].toUpperCase() + replacement.slice(1);
-            }
-
-            return replacement.toLowerCase();
-        });
-    }
-
-    return text.replace(/([A-Za-zäöüÄÖÜß]+?)I(nnen|n)(\b|(?=\p{L}))/gu, (_, stamm) => {
-        if (stamm === stamm.toUpperCase()) return stamm.toUpperCase();
-        if (stamm[0] === stamm[0].toUpperCase()) return stamm[0].toUpperCase() + stamm.slice(1);
-        return stamm.toLowerCase();
-    });
-}
-
-
-function genderEntfernen(node) {
-    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
-        acceptNode(textNode) {
-            const parent = textNode.parentElement;
-            if (!parent) return NodeFilter.FILTER_REJECT;
-            const style = window.getComputedStyle(parent);
-            return style?.visibility !== 'hidden' && style?.display !== 'none'
-                ? NodeFilter.FILTER_ACCEPT
-                : NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
         }
     });
 
-    const updates = [];
-    while (walker.nextNode()) {
-        const node = walker.currentNode;
-        const updated = ersetzeGendern(node.nodeValue);
-        if (node.nodeValue !== updated) {
-            updates.push({ node, updated });
-        }
-    }
+    const nodesToUpdate = [];
+    while (walker.nextNode()) nodesToUpdate.push(walker.currentNode);
 
-    for (const { node, updated } of updates) {
-        node.nodeValue = updated;
+    for (const node of nodesToUpdate) {
+        const originalText = node.nodeValue;
+        const newText = replaceGendersInText(originalText);
+        if (originalText !== newText) {
+            node.nodeValue = newText;
+        }
     }
 }
 
-function genderEntfernenInSelects(node) {
-    if (isSelectOpen) return;
-    node.querySelectorAll('select')?.forEach(select => {
-        const initial = select.getAttribute('data-initial-value');
-        if (initial) {
-            const updated = ersetzeGendern(initial);
-            if (updated !== initial) select.setAttribute('data-initial-value', updated);
-        }
-        select.querySelectorAll('option')?.forEach(option => {
-            const original = option.textContent;
-            const updated = ersetzeGendern(original);
-            if (updated !== original) option.textContent = updated;
-        });
-    });
-}
-
+/**
+ * Debounce-Hilfsfunktion, um eine Funktion nicht zu häufig auszuführen.
+ * @param {Function} func - Die zu debouncende Funktion.
+ * @param {number} wait - Die Wartezeit in Millisekunden.
+ * @returns {Function} Die debounced Funktion.
+ */
 function debounce(func, wait) {
     let timeout;
     return (...args) => {
@@ -159,60 +134,50 @@ function debounce(func, wait) {
     };
 }
 
-const safeProcessMutations = debounce(() => {
-    if ('requestIdleCallback' in window) {
-        requestIdleCallback(() => genderEntfernen(document.body));
-    } else {
-        setTimeout(() => genderEntfernen(document.body), 100);
-    }
-}, 200);
+const debouncedProcessBody = debounce(() => processNode(document.body), 150);
 
-const observer = new MutationObserver(mutations => {
-    let needsUpdate = false;
-    for (const mutation of mutations) {
-        for (const node of mutation.addedNodes) {
-            if (node.nodeType === Node.ELEMENT_NODE && node.closest?.('select')) continue;
-            needsUpdate = true;
+/**
+ * Initialisiert den Filter: Lädt, generiert Varianten und kompiliert den Regex.
+ */
+async function initialize() {
+    let baseFilter;
+    try {
+        const cachedFilter = localStorage.getItem('cachedFilter');
+        const cacheTimestamp = localStorage.getItem('cacheTimestamp');
+        if (!devMode && cachedFilter && cacheTimestamp && (Date.now() - cacheTimestamp < CACHE_DURATION)) {
+            baseFilter = JSON.parse(cachedFilter);
+        } else {
+            const response = await fetch(FILTER_URL);
+            if (!response.ok) throw new Error(`HTTP-Fehler: ${response.status}`);
+            baseFilter = await response.json();
+            localStorage.setItem('cachedFilter', JSON.stringify(baseFilter));
+            localStorage.setItem('cacheTimestamp', Date.now().toString());
         }
-        if (mutation.type === "characterData" && !mutation.target.parentElement?.closest('select')) {
-            needsUpdate = true;
-        }
+    } catch (error) {
+        console.error("GegenDasGendern: Filter konnte nicht geladen werden.", error);
+        return;
     }
-    if (needsUpdate) safeProcessMutations();
-});
 
-let isSelectOpen = false;
-document.addEventListener('focusin', e => {
-    if (e.target.tagName === 'SELECT') isSelectOpen = true;
-});
-document.addEventListener('focusout', e => {
-    if (e.target.tagName === 'SELECT') {
-        isSelectOpen = false;
-        setTimeout(() => genderEntfernenInSelects(document.body), 200);
+    const variants = generateFilterVariants(baseFilter);
+    compileFilter(variants);
+    if (devMode) {
+        console.log(`GegenDasGendern: Filter mit ${variants.size} Varianten initialisiert.`);
     }
-});
+}
 
+// --- Hauptausführung ---
 (async function main() {
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', start);
-    } else {
-        await start();
+        await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve));
     }
 
-    async function start() {
-        try {
-            filter = await initFilter();
-            console.log("Filter geladen", filter);
-        } catch (e) {
-            console.error("Fehler beim Laden des Filters:", e);
-            return;
-        }
-        genderEntfernen(document.body);
-        genderEntfernenInSelects(document.body);
-        observer.observe(document.body, {
-            childList: true,
-            subtree: true,
-            characterData: true
-        });
-    }
+    await initialize();
+    processNode(document.body);
+
+    const observer = new MutationObserver(() => debouncedProcessBody());
+    observer.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+    });
 })();
