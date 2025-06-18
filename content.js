@@ -38,14 +38,13 @@ function generateFilterVariants(base) {
 
 function compileFilter(filterObj) {
     compiledFilter = [];
-    const regexCache = new Map();
     for (const [pattern, replacement] of Object.entries(filterObj)) {
-        let regex = regexCache.get(pattern);
-        if (!regex) {
-            regex = new RegExp(pattern.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'gi');
-            regexCache.set(pattern, regex);
+        const regexPattern = pattern.replace(/[:*_·/]/, '[:*_·/]');
+        try {
+            const regex = new RegExp(regexPattern, 'gi');
+            compiledFilter.push({ regex, replacement });
+        } catch {
         }
-        compiledFilter.push({ regex, replacement });
     }
 }
 
