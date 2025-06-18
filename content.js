@@ -73,8 +73,10 @@ function compileFilter(variants) {
     const sortedPatterns = Array.from(filterMap.keys()).sort((a, b) => b.length - a.length);
     const regexString = sortedPatterns.map(escapeRegex).join('|');
 
-    // Verwendet negative Lookarounds, um ganze Wörter zu erkennen, auch wenn sie Symbole enthalten.
-    compiledRegex = new RegExp(`(?<!\\w)(${regexString})(?!\\w)`, 'g');
+    // Verwendet eine robustere Wortgrenzenerkennung, die auch mit Symbolen im Wort funktioniert.
+    // (?<=^|\W) = Positive Lookbehind: Muss von einem String-Anfang oder einem Nicht-Wort-Zeichen vorangegangen werden.
+    // (?=\W|$)  = Positive Lookahead: Muss von einem Nicht-Wort-Zeichen oder dem String-Ende gefolgt werden.
+    compiledRegex = new RegExp(`(?<=^|\\W)(${regexString})(?=\\W|$)`, 'g');
 }
 
 /**
