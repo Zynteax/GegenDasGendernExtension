@@ -7,6 +7,10 @@ const FILTER_URL = "https://raw.githubusercontent.com/Zynteax/GegenDasGendernExt
 function generateFilterVariants(base) {
     const result = { ...base };
     const seen = new Set(Object.keys(base));
+    const praepositionen = [
+        "mit", "von", "bei", "für", "an", "zu", "nach", "aus", "unter", "zwischen",
+        "über", "gegen", "ohne", "durch", "um", "bis", "ab", "seit"
+    ];
 
     for (const [key, value] of Object.entries(base)) {
         if (key.includes(":innen")) {
@@ -30,6 +34,17 @@ function generateFilterVariants(base) {
                         seen.add(innerVariant);
                     }
                 }
+            }
+        }
+        for (const praep of praepositionen) {
+            const prepKey = `${praep} ${key}`;
+            const prepValue = value.replace(/(\w+)$/, (m) => {
+                if (m.endsWith("er")) return m + "n";
+                return m + "en";
+            });
+            if (!seen.has(prepKey)) {
+                result[prepKey] = prepValue;
+                seen.add(prepKey);
             }
         }
     }
