@@ -104,10 +104,15 @@ function ersetzeGendern(text) {
         else if (beruf.endsWith("n")) plural = beruf;
         else plural += "en";
 
-        const regex = new RegExp(
+        const regex1 = new RegExp(
             `\\b(?:${praepositionen.join("|")})\\s+\\d{1,3}(?:\\.\\d{3})*\\s+${beruf}\\b`, "gi"
         );
-        text = text.replace(regex, match => match.replace(new RegExp(`${beruf}\\b`, "i"), plural));
+        text = text.replace(regex1, match => match.replace(new RegExp(`${beruf}\\b`, "i"), plural));
+
+        const regex2 = new RegExp(
+            `\\b\\d{1,3}(?:\\.\\d{3})*\\s+[A-Za-zäöüÄÖÜß]+\\s+von\\s+${beruf}\\b`, "gi"
+        );
+        text = text.replace(regex2, match => match.replace(new RegExp(`${beruf}\\b`, "i"), plural));
     }
 
     return text.replace(/([A-Za-zäöüÄÖÜß]+?)I(nnen|n)(\b|(?=\p{L}))/gu, (_, stamm) => {
