@@ -1,46 +1,85 @@
 let filter = {};
+let compiledFilter = [];
+const GENDER_SYMBOLS = [":", "*", "_", "·", "/"];
+const FILTER_URL = "https://raw.githubusercontent.com/Zynteax/GegenDasGendernExtension/master/filter.json";
 
-const symbols = [":", "*", "_", "·", "/"];
-
-async function fetchFilter(url) {
-    const response = await fetch(url);
-    const text = await response.text();
-
-    if (!response.ok) throw new Error("Filter konnte nicht geladen werden");
-    console.log(text);
-    return JSON.parse(text);
-}
-
-async function initFilter() {
-    const base = await fetchFilter("https://raw.githubusercontent.com/Zynteax/GegenDasGendernExtension/master/filter.json");
+function generateFilterVariants(base) {
     const result = { ...base };
+    const seen = new Set(Object.keys(base));
 
     for (const [key, value] of Object.entries(base)) {
         if (key.includes(":innen")) {
-            result[key.replace(":innen", ":in")] = value;
+            const variant = key.replace(":innen", ":in");
+            if (!seen.has(variant)) {
+                result[variant] = value;
+                seen.add(variant);
+            }
         }
-
         if (key.includes(":")) {
-            for (const symbol of symbols) {
-                result[key.replace(":", symbol)] = value;
-
+            for (const symbol of GENDER_SYMBOLS) {
+                const variant = key.replace(":", symbol);
+                if (!seen.has(variant)) {
+                    result[variant] = value;
+                    seen.add(variant);
+                }
                 if (key.includes(":innen")) {
-                    result[key.replace(":innen", symbol + "in")] = value;
+                    const innerVariant = key.replace(":innen", symbol + "in");
+                    if (!seen.has(innerVariant)) {
+                        result[innerVariant] = value;
+                        seen.add(innerVariant);
+                    }
                 }
             }
         }
     }
-
     return result;
 }
 
-function ersetzeGendern(text) {
-    if (!filter || Object.keys(filter).length === 0) return text;
+function compileFilter(filterObj) {
+    compiledFilter = [];
+    const regexCache = new Map();
+    for (const [pattern, replacement] of Object.entries(filterObj)) {
+        let regex = regexCache.get(pattern);
+        if (!regex) {
+            regex = new RegExp(pattern.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'gi');
+            regexCache.set(pattern, regex);
+        }
+        compiledFilter.push({ regex, replacement });
+    }
+}
 
-    for (const [pattern, replacement] of Object.entries(filter)) {
-        const escaped = pattern.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
-        const regex = new RegExp(escaped, 'gi');
-        text = text.replace(regex, (match) => {
+async function fetchAndCacheFilter(url) {
+    const cachedFilter = localStorage.getItem('cachedFilter');
+    const cacheTimestamp = localStorage.getItem('cacheTimestamp');
+    const cacheDuration = 30 * 60 * 1000;
+
+    if (cachedFilter && cacheTimestamp && (Date.now() - cacheTimestamp < cacheDuration)) {
+        return JSON.parse(cachedFilter);
+    }
+
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("Filter konnte nicht geladen werden");
+    const filterData = await response.json();
+
+    localStorage.setItem('cachedFilter', JSON.stringify(filterData));
+    localStorage.setItem('cacheTimestamp', Date.now().toString());
+
+    return filterData;
+}
+
+async function initFilter() {
+    const base = await fetchAndCacheFilter(FILTER_URL);
+    const variants = generateFilterVariants(base);
+    compileFilter(variants);
+    return variants;
+}
+
+// Text-Ersetzung
+function ersetzeGendern(text) {
+    if (!compiledFilter.length) return text;
+
+    for (const { regex, replacement } of compiledFilter) {
+        text = text.replace(regex, match => {
             if (match === match.toUpperCase()) return replacement.toUpperCase();
             if (match[0] === match[0].toUpperCase()) return replacement[0].toUpperCase() + replacement.slice(1);
             return replacement.toLowerCase();
@@ -66,37 +105,28 @@ function genderEntfernen(node) {
         }
     });
 
+    const updates = [];
     while (walker.nextNode()) {
         const node = walker.currentNode;
         const updated = ersetzeGendern(node.nodeValue);
-        if (node.nodeValue !== updated) node.nodeValue = updated;
+        if (node.nodeValue !== updated) {
+            updates.push({ node, updated });
+        }
+    }
+
+    for (const { node, updated } of updates) {
+        node.nodeValue = updated;
     }
 }
 
-let isSelectOpen = false;
-
-document.addEventListener('focusin', e => {
-    if (e.target.tagName === 'SELECT') isSelectOpen = true;
-});
-document.addEventListener('focusout', e => {
-    if (e.target.tagName === 'SELECT') {
-        isSelectOpen = false;
-        setTimeout(() => genderEntfernenInSelects(document.body), 200);
-    }
-});
-
 function genderEntfernenInSelects(node) {
     if (isSelectOpen) return;
-
     node.querySelectorAll('select')?.forEach(select => {
         const initial = select.getAttribute('data-initial-value');
         if (initial) {
             const updated = ersetzeGendern(initial);
-            if (updated !== initial) {
-                select.setAttribute('data-initial-value', updated);
-            }
+            if (updated !== initial) select.setAttribute('data-initial-value', updated);
         }
-
         select.querySelectorAll('option')?.forEach(option => {
             const original = option.textContent;
             const updated = ersetzeGendern(original);
@@ -119,7 +149,7 @@ const safeProcessMutations = debounce(() => {
     } else {
         setTimeout(() => genderEntfernen(document.body), 100);
     }
-}, 300);
+}, 200);
 
 const observer = new MutationObserver(mutations => {
     let needsUpdate = false;
@@ -134,16 +164,22 @@ const observer = new MutationObserver(mutations => {
     }
     if (needsUpdate) safeProcessMutations();
 });
-console.log("DEBUG 1");
-(async () => {
-    console.log("DEBUG 2");
+
+let isSelectOpen = false;
+document.addEventListener('focusin', e => {
+    if (e.target.tagName === 'SELECT') isSelectOpen = true;
+});
+document.addEventListener('focusout', e => {
+    if (e.target.tagName === 'SELECT') {
+        isSelectOpen = false;
+        setTimeout(() => genderEntfernenInSelects(document.body), 200);
+    }
+});
+
+(async function main() {
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', async () => {
-            console.log("DEBUG 3");
-            await start();
-        });
+        document.addEventListener('DOMContentLoaded', start);
     } else {
-        console.log("DEBUG 4");
         await start();
     }
 
@@ -155,7 +191,6 @@ console.log("DEBUG 1");
             console.error("Fehler beim Laden des Filters:", e);
             return;
         }
-
         genderEntfernen(document.body);
         genderEntfernenInSelects(document.body);
         observer.observe(document.body, {
