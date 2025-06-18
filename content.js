@@ -88,8 +88,15 @@ function ersetzeGendern(text) {
 
     for (const { regex, replacement } of compiledFilter) {
         text = text.replace(regex, match => {
-            if (match === match.toUpperCase()) return replacement.toUpperCase();
-            if (match[0] === match[0].toUpperCase()) return replacement[0].toUpperCase() + replacement.slice(1);
+            if (match === match.toUpperCase()) {
+                return replacement.toUpperCase();
+            }
+
+            const firstChar = match.trim()[0];
+            if (firstChar === firstChar.toUpperCase()) {
+                return replacement[0].toUpperCase() + replacement.slice(1);
+            }
+
             return replacement.toLowerCase();
         });
     }
@@ -100,6 +107,7 @@ function ersetzeGendern(text) {
         return stamm.toLowerCase();
     });
 }
+
 
 function genderEntfernen(node) {
     const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT, {
