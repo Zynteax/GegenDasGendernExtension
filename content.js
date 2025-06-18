@@ -85,6 +85,8 @@ function ersetzeGendern(text) {
         });
     }
 
+    text = text.replace(/(\bvon\s+\d{1,3}(?:\.\d{3})*)\s+Mitarbeiter\b/g, "$1 Mitarbeitern");
+
     return text.replace(/([A-Za-zäöüÄÖÜß]+?)I(nnen|n)(\b|(?=\p{L}))/gu, (_, stamm) => {
         if (stamm === stamm.toUpperCase()) return stamm.toUpperCase();
         if (stamm[0] === stamm[0].toUpperCase()) return stamm[0].toUpperCase() + stamm.slice(1);
