@@ -74,7 +74,6 @@ async function initFilter() {
     return variants;
 }
 
-// Text-Ersetzung
 function ersetzeGendern(text) {
     if (!compiledFilter.length) return text;
 
