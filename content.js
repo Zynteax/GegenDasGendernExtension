@@ -1,5 +1,6 @@
 let filter = {};
 let compiledFilter = [];
+const devMode = true;
 const GENDER_SYMBOLS = [":", "*", "_", "·", "/"];
 const FILTER_URL = "https://raw.githubusercontent.com/Zynteax/GegenDasGendernExtension/master/filter.json";
 
@@ -53,7 +54,7 @@ async function fetchAndCacheFilter(url) {
     const cacheTimestamp = localStorage.getItem('cacheTimestamp');
     const cacheDuration = 30 * 60 * 1000;
 
-    if (cachedFilter && cacheTimestamp && (Date.now() - cacheTimestamp < cacheDuration)) {
+    if (!devMode && cachedFilter && cacheTimestamp && (Date.now() - cacheTimestamp < cacheDuration)) {
         return JSON.parse(cachedFilter);
     }
 
