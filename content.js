@@ -85,7 +85,30 @@ function ersetzeGendern(text) {
         });
     }
 
-    text = text.replace(/(\bvon\s+\d{1,3}(?:\.\d{3})*)\s+Mitarbeiter\b/g, "$1 Mitarbeitern");
+    const praepositionen = [
+        "mit", "von", "bei", "für", "an", "zu", "nach", "aus", "unter", "zwischen",
+        "über", "gegen", "ohne", "durch", "um", "bis", "ab", "seit"
+    ];
+    const berufe = [
+        ...new Set(Object.values(filter)
+            .filter(w => /^[A-ZÄÖÜ][a-zäöüß]+$/.test(w))
+            .filter(w => /(er|ant|ent|ist|or|eur|loge|graf|nom|at|us|e|en|n)$/.test(w))
+        )
+    ];
+    for (const beruf of berufe) {
+        let plural = beruf;
+        if (beruf.endsWith("er")) plural += "n";
+        else if (beruf.endsWith("ant") || beruf.endsWith("ent") || beruf.endsWith("ist")) plural += "en";
+        else if (beruf.endsWith("or")) plural = beruf.slice(0, -2) + "oren";
+        else if (beruf.endsWith("e")) plural += "n";
+        else if (beruf.endsWith("n")) plural = beruf;
+        else plural += "en";
+
+        const regex = new RegExp(
+            `\\b(?:${praepositionen.join("|")})\\s+\\d{1,3}(?:\\.\\d{3})*\\s+${beruf}\\b`, "gi"
+        );
+        text = text.replace(regex, match => match.replace(new RegExp(`${beruf}\\b`, "i"), plural));
+    }
 
     return text.replace(/([A-Za-zäöüÄÖÜß]+?)I(nnen|n)(\b|(?=\p{L}))/gu, (_, stamm) => {
         if (stamm === stamm.toUpperCase()) return stamm.toUpperCase();
