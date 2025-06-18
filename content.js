@@ -7,10 +7,6 @@ const FILTER_URL = "https://raw.githubusercontent.com/Zynteax/GegenDasGendernExt
 function generateFilterVariants(base) {
     const result = { ...base };
     const seen = new Set(Object.keys(base));
-    const praepositionen = [
-        "mit", "von", "bei", "für", "an", "zu", "nach", "aus", "unter", "zwischen",
-        "über", "gegen", "ohne", "durch", "um", "bis", "ab", "seit"
-    ];
 
     for (const [key, value] of Object.entries(base)) {
         if (key.includes(":innen")) {
@@ -20,6 +16,7 @@ function generateFilterVariants(base) {
                 seen.add(variant);
             }
         }
+
         if (key.includes(":")) {
             for (const symbol of GENDER_SYMBOLS) {
                 const variant = key.replace(":", symbol);
@@ -36,30 +33,27 @@ function generateFilterVariants(base) {
                 }
             }
         }
-        for (const praep of praepositionen) {
-            const prepKey = `${praep} ${key}`;
-            const prepValue = value.replace(/(\w+)$/, (m) => {
-                if (m.endsWith("er")) return m + "n";
-                return m + "en";
-            });
-            if (!seen.has(prepKey)) {
-                result[prepKey] = prepValue;
-                seen.add(prepKey);
-            }
-        }
     }
+
     return result;
+}
+
+function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function compileFilter(filterObj) {
     compiledFilter = [];
     for (const [pattern, replacement] of Object.entries(filterObj)) {
-        const regexPattern = pattern.replace(/[:*_·/]/, '[:*_·/]');
+        let regexPattern = escapeRegex(pattern).replace(/[:*_·/]/g, '[:*_·/]');
+        if (!/^\w+ /.test(pattern)) {
+            regexPattern = '\\b' + regexPattern;
+        }
+        regexPattern += '\\b';
         try {
             const regex = new RegExp(regexPattern, 'gi');
             compiledFilter.push({ regex, replacement });
-        } catch {
-        }
+        } catch {}
     }
 }
 
