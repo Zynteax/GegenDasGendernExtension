@@ -3,7 +3,7 @@
   "name": "GegenDasGendern",
   "version": "1.0.0",
   "description": "Diese Erweiterung sorgt dafür, dass Gendern in Webseiten entfernt wird.",
-  "permissions": ["scripting"],
+  "permissions": ["scripting", "https://raw.githubusercontent.com/"],
   "host_permissions": ["<all_urls>"],
   "action": {
     "default_title": "GegenDasGendern",
@@ -17,7 +17,7 @@
     {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
-      "run_at": "document_idle",
+      "run_at": "document_end",
       "all_frames": true
     }
   ]
