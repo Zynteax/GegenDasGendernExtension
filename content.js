@@ -1,4 +1,4 @@
-const devMode = true;
+const devMode = false;
 const FILTER_URL = "https://raw.githubusercontent.com/Zynteax/GegenDasGendernExtension/master/filter.json";
 const CACHE_DURATION = 30 * 60 * 1000;
 const GENDER_SYMBOLS = [":", "*", "/", "·", "_", "-"];
